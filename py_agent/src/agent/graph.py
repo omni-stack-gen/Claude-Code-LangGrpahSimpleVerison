@@ -4,6 +4,7 @@ LangGraph graph definition for Claude Code Agent.
 This module defines the core StateGraph for the Claude Code agent,
 with reasoning and tools nodes, connected by conditional edges.
 """
+import os
 from typing import Literal
 
 from langgraph.graph import StateGraph, START, END
@@ -19,7 +20,9 @@ def create_agent_graph(
     model_name: str = "claude-opus-4-6",
     tool_server_url: str = "http://localhost:8080",
     api_key: str | None = None,
+    base_url: str | None = None,
     agent_type: str = "general-purpose",
+    max_llm_retries: int = 5,
 ):
     """Create the Claude Code Agent graph.
 
@@ -27,7 +30,9 @@ def create_agent_graph(
         model_name: The model to use for reasoning
         tool_server_url: URL of the TypeScript tool server
         api_key: Anthropic API key (optional)
+        base_url: Custom API base URL for LLM (e.g., Minimax proxy)
         agent_type: Type of agent ("general-purpose", "explore", "plan")
+        max_llm_retries: Maximum retries for LLM rate limiting
 
     Returns:
         A compiled LangGraph StateGraph
@@ -39,7 +44,9 @@ def create_agent_graph(
     reasoning_node = create_reasoning_node(
         model_name=model_name,
         api_key=api_key,
+        base_url=base_url,
         agent_type=agent_type,
+        max_retries=max_llm_retries,
     )
     tools_node = create_tools_node(tool_server_url=tool_server_url)
 
@@ -56,7 +63,7 @@ def create_agent_graph(
         has_tool_calls,
         {
             True: "tools",      # has tool calls → tools
-            False: END,         # no tool calls → end
+            False: END,          # no tool calls → end
         },
     )
 
@@ -75,9 +82,11 @@ class ClaudeCodeAgent:
         model_name: str = "claude-opus-4-6",
         tool_server_url: str = "http://localhost:8080",
         api_key: str | None = None,
+        base_url: str | None = None,
         max_turns: int = 50,
         sandbox_config: dict | None = None,
         agent_type: str = "general-purpose",
+        max_llm_retries: int = 5,
     ):
         """Initialize the Claude Code Agent.
 
@@ -85,21 +94,30 @@ class ClaudeCodeAgent:
             model_name: The model to use for reasoning
             tool_server_url: URL of the TypeScript tool server
             api_key: Anthropic API key (optional)
+            base_url: Custom API base URL for LLM (e.g., Minimax proxy)
             max_turns: Maximum number of turns before stopping
             sandbox_config: Configuration for the sandbox
             agent_type: Type of agent prompt to use
+            max_llm_retries: Maximum retries for LLM rate limiting
         """
+        # Resolve base_url from env if not provided
+        resolved_base_url = base_url or os.environ.get("ANTHROPIC_BASE_URL")
+
         self.graph = create_agent_graph(
             model_name=model_name,
             tool_server_url=tool_server_url,
             api_key=api_key,
+            base_url=resolved_base_url,
             agent_type=agent_type,
+            max_llm_retries=max_llm_retries,
         )
         self.max_turns = max_turns
         self.sandbox_config = sandbox_config or {}
         self.agent_type = agent_type
         self.tool_server_url = tool_server_url
         self.model_name = model_name
+        self.base_url = resolved_base_url
+        self.api_key = api_key
 
     def run(self, input_message: str) -> AgentState:
         """Run the agent synchronously (blocking).
